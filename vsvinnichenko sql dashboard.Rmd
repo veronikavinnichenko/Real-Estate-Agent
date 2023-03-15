@@ -1,0 +1,147 @@
+---
+title: "Сравнительный анализ оттока сотрудников и предложения по его уменьшению для Sales"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: fill
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(ggplot2)
+library(plotly)
+# загрузка данных, предобработка
+library(DBI)
+library(RMariaDB)
+con <- dbConnect(RMariaDB::MariaDB(), 
+                 user='studentminor', 
+                 password='DataMinorHSE!2020', 
+                 dbname='employee', 
+                 host='34.88.193.134',
+                 port = 3306)
+data1 = dbGetQuery(con,
+  "SELECT Attrition, Department, COUNT(*) AS n 
+  FROM portfolio
+  GROUP BY Department, Attrition")
+data1$n = as.integer(data1$n)
+data5 = dbGetQuery(con, "SELECT * 
+                         FROM portfolio
+                         WHERE Department = 'Sales'
+                   ")
+data1$Attrition = as.factor(data1$Attrition)
+data2 = data1%>% filter(Department == "Sales")
+dbDisconnect(con)
+
+#Преобразуем переменные к нужному формату
+final = data5 %>% dplyr::collect()
+
+for (var in names(final)[c(1:7, 8, 10:13)]){
+  final[[var]] = as.factor(final[[var]])
+}
+
+final$MonthlyIncome = as.numeric(final$MonthlyIncome)
+final$TrainingTimesLastYear = as.numeric(final$TrainingTimesLastYear)
+final$MonthlyIncome = as.numeric(final$MonthlyIncome)
+final$YearsAtCompany = as.numeric(final$YearsAtCompany)
+final$YearsInCurrentRole = as.numeric(final$YearsInCurrentRole)
+final$YearsSinceLastPromotion = as.numeric(final$YearsSinceLastPromotion)
+final$YearsWithCurrManager = as.numeric(final$YearsWithCurrManager)
+finalochka = final %>% select(-Department, -EmployeeNumber)
+library(tidymodels)
+
+set.seed(100)
+split = initial_split(finalochka, prop = 0.8)
+train = training(split)
+test = testing(split)
+
+library(rpart.plot)
+
+tree <- decision_tree(
+mode = "classification") %>%
+set_engine("rpart")
+
+tree.wf <- workflow() %>%
+add_model(tree) %>%
+add_formula(Attrition ~.) %>%
+fit(data = train)
+
+rpart.plot(tree.wf$fit$fit$fit)
+```
+
+Row {data-height=400}
+-----------------------------------------------------------------------
+
+### Отток сотрудников по депратаментам
+
+```{r}
+f = ggplot(data = data1, aes(x = as.factor(Department), y = as.numeric(n), 
+                          fill = as.factor(Attrition), label = as.numeric(n))) + 
+  geom_bar(stat = "identity", position="dodge", width = 0.5) +
+  labs(x = "Department", y = "Number") +
+  scale_fill_manual("Attrition", values = c("1" = "#6AB187", "0" = "#484848")) +
+  theme_minimal()
+ggplotly(f)
+```
+
+Column
+-----------------------------------------------------------------------
+### Наибольший отток испытывает депаратмент Sales, отток составляет
+
+```{r}
+valueBox("20.6%", icon = "fa-thumbs-down", color="red")
+```
+
+### Отток сотрудников департамента HR составляет
+
+```{r}
+valueBox("15.78%", icon = "fa-thumbs-down", color="#FF4500")
+```
+
+### Отток сотрудников департамента Research and Development составляет
+
+```{r}
+valueBox("15,26%", icon = "fa-thumbs-down", color="#FFD700")
+```
+
+Row {data-height=600}
+-----------------------------------------------------------------------
+
+### Результаты Предложения 1: увеличение З/П на 10%
+
+```{r}
+test2 = test
+test2$MonthlyIncome = test2$MonthlyIncome*1.1
+predTest = predict(tree.wf, test2)$.pred_class
+c=ggplot(data.frame(predTest)) + geom_bar(aes(x = predTest), alpha = 0.5, fill = "red") +
+geom_bar(data = test, aes(x = Attrition), alpha = 0.5) + xlab("Attrition")
+ggplotly(c)
+```
+
+### Результаты Предложения 2: повысить вовлеченность в работу (low-> medium)
+
+```{r}
+test4 = test
+test4 = test %>% mutate(JobInvolvement = as.factor(ifelse(JobInvolvement =="Low", JobInvolvement == "Medium", JobInvolvement)))
+
+predTest = predict(tree.wf, test4)$.pred_class
+e= ggplot(data.frame(predTest)) + geom_bar(aes(x = predTest), alpha = 0.5, fill = "red") +
+geom_bar(data = test, aes(x = Attrition), alpha = 0.5) + xlab("attrition")
+ggplotly(e)
+```
+
+### Результаты Предложения 3: уменьшить кол-во перерабатывающих сотрудников 
+
+```{r}
+test3 = test
+test3$Overtime[test3$Overtime == "Yes"] =
+sample(c("Yes", "No"),
+size = length(test3$Overtime[test3$Overtime == "Yes"]),
+replace = T, prob = c(0.9, 0.1))
+
+predTest = predict(tree.wf, test3)$.pred_class
+d= ggplot(data.frame(predTest)) + geom_bar(aes(x = predTest), alpha = 0.5, fill = "red") +
+geom_bar(data = test, aes(x = Attrition), alpha = 0.5) + xlab("attrition")
+ggplotly(d)
+
+```
+

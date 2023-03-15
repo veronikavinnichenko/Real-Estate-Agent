@@ -1,0 +1,233 @@
+---
+title: 'Проект SQL: Анализ оттока сотрудников и предложения по улучшению'
+author: "Винниченко Вероника, vsvinnichenko"
+output: 
+  html_document:
+    code_folding: hide
+---
+
+## Задача
+
+на основе данных:
+
+* выяснить какой департамент испытывает наибольший отток сотрудников
+* построить модель для предсказания оттока
+* выявите основные факторы, которые значимы для предсказания оттока согласно этой модели
+* предложить улучшения для уменьшения оттока на основе модели
+
+## Анализ
+
+### Данные и логика анализа
+
+Подключение к базе данных:
+```{r}
+library(DBI)
+library(RMariaDB)
+con <- dbConnect(RMariaDB::MariaDB(), 
+                 user='studentminor', 
+                 password='DataMinorHSE!2020', 
+                 dbname='employee', 
+                 host='34.88.193.134',
+                 port = 3306)
+```
+Давайте посмотрим на распределение оттока сотрудников во всей компании, чтобы понимать масштаб проблемы, которую необходимо решить. 179 сотрудников ушло из компании, текущий общий отток составляет 16.9% от общего числа сотрудников.
+```{r message = FALSE, warning=FALSE, echo = F}
+dbGetQuery(con,
+  "SELECT Attrition, COUNT(*) AS n 
+  FROM portfolio
+  GROUP BY Attrition")
+```
+Рассмотрим распределение оттока по департаментам. Из графика следует, что наибольшее количество людей уходит из департамента "Sales". 
+
+```{r message = FALSE, warning=FALSE, echo = F, results ='hide'}
+data1 = dbGetQuery(con,
+  "SELECT Attrition, Department, COUNT(*) AS n 
+  FROM portfolio
+  GROUP BY Department, Attrition")
+data1$n = as.integer(data1$n)
+data1
+library(ggplot2)
+```
+```{r message = FALSE, warning=FALSE, echo = F}
+library(plotly)
+f = ggplot(data = data1, aes(x = as.factor(Department), y = as.numeric(n), 
+                          fill = as.factor(Attrition), label = as.numeric(n))) + 
+  geom_bar(stat = "identity", position="dodge", width = 0.5) +
+  labs(x = "Department", y = "Number") +
+  scale_fill_manual("Attrition", values = c("1" = "#6AB187", "0" = "#484848")) +
+  theme_minimal()
+ggplotly(f)
+```
+В процентном соотношении Sales также испытывет наибольший отток сотрудников.
+
+**R&D**: 15,26%
+
+**Sales**: 20.6%
+
+**HR**: 15.78%
+
+Отдельно можно взглянуть на распредение оттока для Sales. 
+```{r}
+data1$Attrition = as.factor(data1$Attrition)
+data2 = data1%>% filter(Department == "Sales")
+
+a =ggplot(data2, aes(x=Attrition, y=n)) + 
+  geom_bar(stat = "identity") + scale_x_discrete(breaks=c("0","1"),labels = c("Work","Left")) +ylab("Number of employees") + ggtitle("Sales department")
+ggplotly(a)
+```
+Предложения по уменьшения оттока сотрудников будут предложены именно этому департаменту. Но для начала необходимо построить модель, определяющую факторы оттока.
+Достанем данные о сотрудниках из sales, с которыми будет происходить дальнейшая работа.
+```{r message = FALSE, warning=FALSE, echo = T, results ='hide'}
+data5 = dbGetQuery(con, "SELECT * 
+                         FROM portfolio
+                         WHERE Department = 'Sales'
+                   ")
+data5
+dbDisconnect(con)
+
+#Преобразуем переменные к нужному формату
+final = data5 %>% dplyr::collect()
+
+for (var in names(final)[c(1:7, 8, 10:13)]){
+  final[[var]] = as.factor(final[[var]])
+}
+
+final$MonthlyIncome = as.numeric(final$MonthlyIncome)
+final$TrainingTimesLastYear = as.numeric(final$TrainingTimesLastYear)
+final$MonthlyIncome = as.numeric(final$MonthlyIncome)
+final$YearsAtCompany = as.numeric(final$YearsAtCompany)
+final$YearsInCurrentRole = as.numeric(final$YearsInCurrentRole)
+final$YearsSinceLastPromotion = as.numeric(final$YearsSinceLastPromotion)
+final$YearsWithCurrManager = as.numeric(final$YearsWithCurrManager)
+finalochka = final %>% select(-Department, -EmployeeNumber)
+```
+### Модель
+Было принято решение остановить свой выбор на модели для предсказания под названием decision tree. 
+
+*Построение модели*
+```{r message = FALSE, warning=FALSE, echo = T, results ='hide'}
+library(tidymodels)
+
+set.seed(100)
+split = initial_split(finalochka, prop = 0.8)
+train = training(split)
+test = testing(split)
+
+library(rpart.plot)
+tree <- decision_tree(
+mode = "classification") %>%
+set_engine("rpart")
+tree.wf <- workflow() %>%
+add_model(tree) %>%
+add_formula(Attrition ~.) %>%
+fit(data = train)
+```
+```{r message = FALSE, warning=FALSE, echo = F, results ='hide'}
+rpart.plot(tree.wf$fit$fit$fit)
+```
+
+*Оценим качество модели*
+
+На тестовой выборке **accuracy** составила 0.734.
+```{r message = FALSE, warning=FALSE, echo = T, results ='hide'}
+test = test %>%
+mutate(Prediction = predict(tree.wf, test)$.pred_class)
+
+test %>%
+conf_mat(truth = Attrition, estimate = Prediction) %>%
+summary()
+```
+На тренировочной выборке **accuracy** составила 0.866.
+```{r message = FALSE, warning=FALSE, echo = T, results ='hide'}
+train2 = train %>%
+mutate(Prediction = predict(tree.wf, train)$.pred_class)
+
+train2 %>%
+conf_mat(truth = Attrition, estimate = Prediction) %>%
+summary()
+```
+Модель неоплохая, однако стоит помнить, что она  немного biased, тк интересующий нас класс (Attrition - 1) находится в меньшенстве.
+
+*Оценим важность признаков*
+```{r message = FALSE, warning=FALSE, echo = T}
+library(vip)
+tree.wf %>%
+extract_fit_parsnip() %>%
+vip()
+```
+
+MonthlyIncome является решающей переменной при уходе из компании из депратамента Sales.
+
+JobInvolvement и Overtime входят в топ-3 факторов, также влияющих на решение.
+
+### Симуляция
+**Основное предложение**:
+
+Давайте проведем симуляцию и изменим заработную плату, увеличив ее на 10%.
+
+```{r}
+test2 = test
+test2$MonthlyIncome = test2$MonthlyIncome*1.1
+
+predTest = predict(tree.wf, test2)$.pred_class
+c=ggplot(data.frame(predTest)) + geom_bar(aes(x = predTest), alpha = 0.5, fill = "red") +
+geom_bar(data = test, aes(x = Attrition), alpha = 0.5) + xlab("Attrition")
+ggplotly(c)
+```
+Количество ушедших людей уменьшилось на 6 человек.
+
+
+*Давайте рассмотрим альтернативные варинты уменьшения оттока сотрудников, не требующие прямых денежных затрат.*
+
+**Альтернатива 1.0** - изменить распредление JobInvolvement.
+
+Предожение: повысить вовлеченность в работу сотрудников, оценивших JobInvolvement как Low.
+```{r,  warning=FALSE}
+test4 = test
+test4 = test %>% mutate(JobInvolvement = as.factor(ifelse(JobInvolvement =="Low", JobInvolvement == "Medium", JobInvolvement)))
+
+predTest = predict(tree.wf, test4)$.pred_class
+e= ggplot(data.frame(predTest)) + geom_bar(aes(x = predTest), alpha = 0.5, fill = "red") +
+geom_bar(data = test, aes(x = Attrition), alpha = 0.5) + xlab("attrition")
+ggplotly(e)
+```
+Из графика видно, что отток сотрудников уменьшился на 10 человек. 
+
+**Альтернатива 2.0** - уменьшить процент сотрудников, у которых есть количество переработок.
+
+Предположим, что в 10% случаев это удалось — посмотрим, что изменится в оттоке. Он уменьшился на 7 человек.
+
+```{r}
+test3 = test
+test3$Overtime[test3$Overtime == "Yes"] =
+sample(c("Yes", "No"),
+size = length(test3$Overtime[test3$Overtime == "Yes"]),
+replace = T, prob = c(0.9, 0.1))
+
+predTest = predict(tree.wf, test3)$.pred_class
+d= ggplot(data.frame(predTest)) + geom_bar(aes(x = predTest), alpha = 0.5, fill = "red") +
+geom_bar(data = test, aes(x = Attrition), alpha = 0.5) + xlab("attrition")
+ggplotly(d)
+```
+
+### Дэшборд
+
+В дэшборд вынесены сравнительные характеристики по депаратментам: Sales, Human Resources, Research & Development.
+Общий график и valueboxes для каждого департамента показывают, что департамент Sales необходимы изменения в первую очередь. 
+В связи с этим данный дэшборд предназначен для руководства отдела Sales.
+Представлены результаты трех возможных изменений:
+1. увеличение З/П на 10%
+2. повышение вовлеченность в работу (low-> medium)
+3. уменьшение кол-во перерабатывающих сотрудников 
+
+
+## Общие выводы
+
+В ходе анализа было выяснено, что отдел Sales требует измнений в первую очередь. Отток сотрудников составялет 20.6 % от общего числа сотрудников отдела.
+Было предложено 3 решения, способных улучшить ситуацию.
+Увеличение З/П на 10% уменьшает количество ушедших сотрудников на 6 человек; повышение вовлеченности в работу (low-> medium) и уменьшение количества перерабатывающих сотрудников на 10 и 7 сотрудников соотвественно.
+Таким образом,наиболее действенным способом оказалось уменьшение количества перерабатывающих сотрудников, однако модель выдяет MontlyIncome как самый фактор. 
+
+
+
+
