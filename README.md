@@ -4,6 +4,10 @@
   
 В разработке продукта принимали участие: <a href = "https://github.com/jinAntonik"> Антон Алексеев</a>, <a href = "https://github.com/"> Валерия Винниченко</a>,<a href = "https://github.com/"> Дмитрий Жучков</a>, <a href = "https://github.com/veronikavinnichenko">Вероника Винниченко</a>.</div>
 
+### Ссылка на сервис: 
+https://data8group.shinyapps.io/best_app/
+
+
 ### 🔧 Технологии
 
 * ![R](https://img.shields.io/badge/R-276DC3?style=plastic&logo=r&logoColor=white)
@@ -106,3 +110,12 @@ output$mymap = renderLeaflet({
                  label = paste0(formatC(as.numeric(recommend$price), format="f", digits=0, big.mark="'"), " ₽"))
   })
 ```
+
+## 👩‍💻 Пример использования интерфеса
+
+### Карта с похожими квартирами
+![IMG_8667](https://github.com/veronikavinnichenko/bum-s-bucket/assets/127980580/e2d36a00-ffa1-42eb-bea3-5d4d7d81f4fc)
+
+### Предсказанная цена
+![IMG_8668](https://github.com/veronikavinnichenko/bum-s-bucket/assets/127980580/62a72b8a-d0dd-44d6-8a2c-2bb354c5191b)
+
