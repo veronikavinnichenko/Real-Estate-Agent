@@ -77,3 +77,32 @@
   <li>Вывод: 5 наиболее похожих квартир</li>
   <li>Формат вывода: карта г. Санкт-Петербурга с похожими квартирами и их характеристикмми</li>
 </ol>
+
+```r
+output$mymap = renderLeaflet({
+    vector1 = c(1, 0)
+    vector2 = c("есть", "нет")
+    
+    recommend = recommend()
+    M = leaflet(recommend) %>% setView(lng = 30.3141, lat = 59.9386, zoom = 10)
+    M %>% addTiles() %>%
+      addMarkers(~dolgota, ~shirota, popup = paste("<br>Адрес:", recommend$addr,
+                                                   "<br>Район:", recommend$district,
+                                                   "<br>Цена:", paste0(formatC(as.numeric(recommend$price), format="f", digits=0, big.mark="'"), " ₽"),
+                                                   "<br>Кол-во комнат:", recommend$rooms,
+                                                   "<br>Площадь (кв.м):", recommend$square,
+                                                   "<br>Жилая площадь (кв.м):", recommend$living_square,
+                                                   "<br>Площадь кухни (кв.м):", recommend$kitchen_square,
+                                                   "<br>Этаж:", recommend$floor,
+                                                   "<br>Год постройки:", recommend$year,
+                                                   "<br>Тип дома:", recommend$housetype,
+                                                   "<br>Балкон:", recommend$if_balcony,
+                                                   "<br>Наличие лифта:", recommend$if_lift,
+                                                   "<br>Кол-во санузлов:", recommend$toilet_quantity,
+                                                   "<br>Тип туалета:", recommend$type_toilet,
+                                                   "<br>Ремонт:", recommend$remont,
+                                                   "<br>Станция метро:", recommend$subway_TRUE,
+                                                   "<br>Пешком до метро (мин):", recommend$subway_dist_peshkom_TRUE),
+                 label = paste0(formatC(as.numeric(recommend$price), format="f", digits=0, big.mark="'"), " ₽"))
+  })
+```
